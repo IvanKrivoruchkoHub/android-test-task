@@ -11,7 +11,6 @@ import com.example.testtask.entities.AbstractEntity;
 import com.example.testtask.entities.TextEntity;
 import com.example.testtask.entities.WebViewEntity;
 
-import org.jetbrains.annotations.NotNull;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -23,8 +22,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-import okhttp3.Call;
-import okhttp3.Callback;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -41,7 +38,11 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        entityUrls = getListOfUrls();
+        try {
+            entityUrls = getListOfUrls();
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
         mainLayout = (LinearLayout)findViewById(R.id.mainlayout);
         Button button = findViewById(R.id.Button1);
 
@@ -66,61 +67,82 @@ public class MainActivity extends AppCompatActivity {
             } else {
                 entityDisplay(mainLayout, context);
             }
-        } catch (JSONException e) {
+        } catch (JSONException | IOException | InterruptedException e) {
             e.printStackTrace();
         }
     }
 
-    private AbstractEntity getEntity (String url) {
+    private AbstractEntity getEntity (String url) throws IOException, InterruptedException {
         final AbstractEntity[] abstractEntity = {null};
-        OkHttpClient client = new OkHttpClient();
-        Request request = new Request.Builder()
-                .url(url)
-                .build();
-        client.newCall(request).enqueue(new Callback() {
-            @Override
-            public void onFailure(@NotNull Call call, @NotNull IOException e) {
-                e.printStackTrace();
-            }
-            @Override
-            public void onResponse(@NotNull Call call, @NotNull Response response) throws IOException {
-                if (response.isSuccessful()) {
-                    String jsonData = Objects.requireNonNull(response.body()).string();
+
+        Runnable runnable =
+                () -> { OkHttpClient client = new OkHttpClient();
+                    Request request = new Request.Builder()
+                            .url(url)
+                            .build();
+                    Response response = null;
                     try {
-                        JSONObject jsonObject = new JSONObject(jsonData);
-                        abstractEntity[0]
-                                = Objects.requireNonNull(
-                                        classMap.get(jsonObject.getString("type")))
-                                .newInstance();
-                        abstractEntity[0].setJson(jsonObject);
-                    } catch (JSONException | InstantiationException | IllegalAccessException e) {
+                        response = client.newCall(request).execute();
+                    } catch (IOException e) {
                         e.printStackTrace();
                     }
-                }
-            }
-        });
+                    assert response != null;
+                    if (response.isSuccessful()) {
+                        String jsonData = null;
+                        try {
+                            jsonData = Objects.requireNonNull(response.body()).string();
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        }
+                        try {
+                            JSONObject jsonObject = new JSONObject(jsonData);
+                            Class<? extends AbstractEntity> aClass
+                                    = classMap.get(jsonObject.getString("type"));
+                            if (aClass== null) {
+                                return;
+                            }
+                            abstractEntity[0]
+                                    = aClass
+                                    .newInstance();
+                            abstractEntity[0].setJson(jsonObject);
+                        } catch (JSONException | InstantiationException | IllegalAccessException e) {
+                            e.printStackTrace();
+                        }
+                    }};
+
+        Thread thread = new Thread(runnable);
+        thread.start();
+        thread.join();
         return abstractEntity[0];
     }
 
-    private List<String> getListOfUrls() {
+    private List<String> getListOfUrls() throws InterruptedException {
         List<String> urls = new ArrayList<>();
-        OkHttpClient client = new OkHttpClient();
         String trendingUrl = "https://demo0040494.mockable.io/api/v1/trending";
         String urlGetOneEntityById
                 = "https://demo0040494.mockable.io/api/v1/object/";
-        Request request = new Request.Builder()
-                .url(trendingUrl)
-                .build();
-        client.newCall(request).enqueue(new Callback() {
-            @Override
-            public void onFailure(@NotNull Call call, @NotNull IOException e) {
-                e.printStackTrace();
-            }
-            @Override
-            public void onResponse(@NotNull Call call, @NotNull Response response) throws IOException {
-                if (response.isSuccessful()) {
-                    String jsonData = Objects.requireNonNull(response.body()).string();
+
+        Runnable runnable =
+                () -> {
+                    OkHttpClient client = new OkHttpClient();
+                    Request request = new Request.Builder()
+                            .url(trendingUrl)
+                            .build();
+                    Response response = null;
                     try {
+                        response = client.newCall(request).execute();
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                    assert response != null;
+                    if (response.isSuccessful()) {
+                        String jsonData = null;
+                        try {
+                            jsonData = Objects.requireNonNull(response.body()).string();
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        }
+                        try {
                         JSONArray jsonArray = new JSONArray(jsonData);
                         for (int i = 0; i < jsonArray.length(); i++) {
                             urls.add(urlGetOneEntityById + jsonArray.getJSONObject(i).getInt("id"));
@@ -129,8 +151,11 @@ public class MainActivity extends AppCompatActivity {
                         e.printStackTrace();
                     }
                 }
-            }
-        });
+        };
+
+        Thread thread = new Thread(runnable);
+        thread.start();
+        thread.join();
         return urls;
     }
 }
